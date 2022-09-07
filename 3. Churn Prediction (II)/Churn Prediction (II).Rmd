@@ -1,0 +1,191 @@
+---
+title: "Assignment 3 - Churn prediction (II)"
+author:
+- name: Philipp Markopulos
+  email: h12030674@wu.ac.at
+date: "November 3rd, 2021"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  html_document:
+    toc: yes
+    toc_depth: 3
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, message=FALSE, warning=FALSE}
+if (!require("rpart")) install.packages("rpart"); library("rpart")
+if (!require("rpart.plot")) install.packages("rpart.plot"); library("rpart.plot")
+if (!require("ISLR")) install.packages("ISLR"); library("ISLR")
+if (!require("randomForest")) install.packages("randomForest"); library("randomForest")
+if (!require("caret")) install.packages("caret"); library("caret")
+```
+
+```{r}
+churndat <- read.csv(url("https://statmath.wu.ac.at/~vana/datasets/churn.csv"))
+```
+
+```{r}
+churndat$churn <- factor(churndat$churn)
+churndat$internationalplan <- factor(churndat$internationalplan)
+churndat$voicemailplan <- factor(churndat$voicemailplan)
+```
+
+## Task 1
+```{r}
+set.seed(1234)
+id_train <- sample(1:nrow(churndat), 0.8 * nrow(churndat))
+train <- churndat[id_train, ]
+test <- churndat[-id_train, ]
+```
+
+## Task 2
+
+```{r}
+rt <- rpart(churn ~ ., data = train)
+```
+
+```{r}
+rsq.rpart(rt)
+##prune at 6
+```
+```{r}
+rt_pruned <- prune(rt, cp = 0.027580)
+```
+
+```{r}
+rpart.plot(rt)
+```
+
+
+```{r}
+rpart.plot(rt_pruned)
+```
+In the pruned tree the variables totaldayminutes, numbercustomerservicecalls, voicemailplan, internationalplan, totaleveminutes, totalintlcalls and totalintlminutes remain with totaldayminutes being a relevent splitting decision 3 times.
+The pruned tree has 10 endnodes and the non-pruned one has 14 so there weren't many variables/decisions that had to be removed because of lacking relevancy.
+
+## Task 3
+
+```{r}
+rrf <- randomForest(churn ~ ., data = train, mtry = 4, importance = TRUE)
+importance(rrf)
+```
+```{r}
+varImpPlot(rrf)
+```
+
+
+## Task 4
+
+Last time our important variables were internationalplan, voicemailplan, numbervmailmessages, totaldayminutes, totalevecharge, totalnightcharge, totalintlminutes, totalintlcalls and numbercustomerservicecalls. 
+This time in the classification tree, which is optimally pruned, we get the variables internationalplan, numbercustomerservicecalls, totaldayminutes, totaleveminutes, totalintlcalls, totalintlminutes, totalnightminutes and voicemailplan. So it contains one variable less than last time and also the variables used differ slightly. And with the importance function of random forests above, you can also see that the "important" variables differ to them from last time.
+
+## Task 5
+
+```{r}
+set.seed(12345)
+fitControl <- trainControl(## 10-fold CV
+                           method = "cv",
+                           number = 10,
+                           p = 1)
+
+set.seed(12345)
+glmFit <- train(churn ~ ., 
+                 data = train, 
+                 method = "glm", 
+                 trControl = fitControl)
+
+set.seed(12345)
+rpartFit <- train(churn ~ ., 
+                 data = train, 
+                 method = "rpart", 
+                 trControl = fitControl)
+
+set.seed(12345)
+rfFit <- train(churn ~ ., 
+                 data = train, 
+                 method = "rf",
+                tuneGrid = data.frame(mtry = 3),
+                 trControl = fitControl)
+
+```
+
+```{r}
+
+glmFit
+rpartFit
+rfFit
+```
+
+#### glm accuracy / recall / precision
+
+```{r}
+
+phat_logit <- predict(glmFit, newdata = test, type = "raw")
+yhat_logit <- as.numeric(phat_logit) - 1
+
+tab <- table(predicted = yhat_logit, observed = test$churn)
+head(tab)
+
+##accuracy
+(tab[1,1] + tab[2,2]) / sum(tab)
+
+prop.table(table(test$churn))
+
+##recall
+tab[2,2] / (tab[1,2] + tab[2,2])
+
+##precision
+tab[2,2] / (tab[2,1] + tab[2,2])
+```
+
+#### rpart accuracy / recall / precision
+
+```{r}
+
+phat_logit <- predict(rpartFit, newdata = test, type = "raw")
+yhat_logit <- as.numeric(phat_logit) - 1
+
+tab <- table(predicted = yhat_logit, observed = test$churn)
+head(tab)
+
+##accuracy
+(tab[1,1] + tab[2,2]) / sum(tab)
+
+prop.table(table(test$churn))
+
+##recall
+tab[2,2] / (tab[1,2] + tab[2,2])
+
+##precision
+tab[2,2] / (tab[2,1] + tab[2,2])
+```
+
+#### rf accuracy / recall / precision
+
+```{r}
+
+phat_logit <- predict(rfFit, newdata = test, type = "raw")
+yhat_logit <- as.numeric(phat_logit) - 1
+
+tab <- table(predicted = yhat_logit, observed = test$churn)
+head(tab)
+
+##accuracy
+(tab[1,1] + tab[2,2]) / sum(tab)
+
+prop.table(table(test$churn))
+
+##recall
+tab[2,2] / (tab[1,2] + tab[2,2])
+
+##precision
+tab[2,2] / (tab[2,1] + tab[2,2])
+```
+
+The random forest has the highest accuracy followed by the classification tree with the logistic regression having the lowest accuracy.
+The random forest also has the highest recall with the tree having the second and the logistic regression having the third highest recall.
+For the precision once again the same results appear.
+So for this data a random forest is definitely suited best.
