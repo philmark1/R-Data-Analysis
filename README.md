@@ -8,6 +8,6 @@ Project 1.:
 - I then did a stepwise variable selection based on AIC.
 - Lastly, I split into training & test data-set, normalized the data & applied a knn (K-nearest-neighbor) regression
 
-🔗to the file: https://tinyurl.com/college-data-exploration
+🔗to the html file: https://tinyurl.com/college-data-exploration
 
 (I attached the .rmd file, which can be downloaded to replicate the code in RStudio. The data is automatically downloaded from an online repository from the Data Science department (included an excel file as an extra tough, should the file be removed sometime).)
