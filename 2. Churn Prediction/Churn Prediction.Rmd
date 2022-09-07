@@ -1,0 +1,698 @@
+---
+title: "Assignment 2 - Churn prediction"
+author:
+name: "Philipp Markopulos"
+email: "h12030674@wu.ac.at"
+date: "October 27th, 2021"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  html_document:
+    toc: yes
+    toc_depth: 3
+  word_document:
+    toc: yes
+    toc_depth: '3'
+editor_options:
+  chunk_output_type: console
+header-includes:
+- \usepackage{titling}
+- \posttitle{\end{center}}
+---
+
+```{r, message=FALSE, warning=FALSE}
+# Load functional libraries
+library(tidyverse)
+library(e1071)
+library(caret)
+# Load visual libraries
+library(ggplot2)
+library(ggrepel)
+library(ggbeeswarm)
+library(ggmosaic)
+library(patchwork)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+# Load data.
+churndat <- read.csv(url("https://statmath.wu.ac.at/~vana/datasets/churn.csv"))
+```
+
+# 1. Exploratory analysis
+
+## Structure of the data
+
+```{r, message=FALSE, warning=FALSE}
+str(churndat)
+```
+
+There are `r nrow(churndat)` observations of `r ncol(churndat)` variables.
+
+The variables are mostly quantitative / numerical. 
+
+Only the variables `churn`, `internationalplan`, and `voicemailplan` are qualitative / categorical with the nominal expressions `Yes`/`No` and `yes`/`no`, respectively. These variables should be turned into unordered factors and the field values should be standardized, e.g. into a lower-case `yes`/`no` or just `1` and `0`. 
+
+There seem to be no missing, NA, or NULL values.
+
+
+```{r, message=FALSE, warning=FALSE}
+churndat <- churndat %>% 
+  mutate(
+    churn = case_when(
+      churn == "No" ~ 0,
+      churn == "Yes" ~ 1
+    ) %>% factor(
+      levels = c(0, 1),
+      label = c("no", "yes")
+    ),
+    internationalplan = case_when(
+      internationalplan == "no" ~ 0,
+      internationalplan == "yes" ~ 1
+    ) %>% factor(
+      levels = c(0, 1),
+      label = c("no", "yes")
+    ),
+    voicemailplan = case_when(
+      voicemailplan == "no" ~ 0,
+      voicemailplan == "yes" ~ 1
+    ) %>% factor(
+      levels = c(0, 1),
+      label = c("no", "yes")
+    )
+  )
+```
+
+## Summary statistics
+
+```{r, message=FALSE, warning=FALSE}
+summary(churndat)
+```
+
+What jumps out is that 
+
+* most means and medians seem to be fairly close together.
+* moot means and medians are located quite centrally between the Q1 and Q3 points.
+
+This suggests fairly normally distributed data. 
+
+However, there are some obvious exceptions:
+
+* `churn`: The outcome variable in this dataset is unevenly distributed (around `r round(summary(churndat$churn)["0"]/summary(churndat$churn)["1"])`x more non-churns vs. churns) . *This needs to be taken into account when deciding on measures of model performance*.
+* `internationalplan`: This variable is unevenly distributed. Observations without an international plan are around `r round(summary(churndat$internationalplan)["0"]/summary(churndat$internationalplan)["1"])`x times as numerous as observations with an international plan.
+* `voicemailplan`: This variable is unevenly distributed. Observations without a voicemail plan are around `r round(summary(churndat$voicemailplan)["0"]/summary(churndat$voicemailplan)["1"])`x times as numerous as observations with a voicemail plan.
+* `numbervmailmessages`: The min and median are both at Q1 (far below the mean), and the max is around 2IQR beyond Q3. This suggests a positive skew in the distribution of this variable. 
+* `numbercustomerservicecalls`: The median is at Q1, the mean is close to Q3, and the max is around 7IQR beyond Q3. This suggests a positive skew in the distribution of this variable.
+
+
+## Graphs
+
+### Preparation
+
+```{r, message=FALSE, warning=FALSE}
+# Generalized function to generate boxplot graphs.
+boxplot_graph <- function(data, x, y, notitle = FALSE) {
+    x <- sym(x)
+    y <- sym(y)
+    
+    g <- ggplot() + 
+        geom_quasirandom(
+            data = data, 
+            aes(
+                x = !!x, 
+                y = !!y
+            ), 
+            groupOnX = TRUE, 
+            alpha = 0.5, 
+            color = "grey"
+        ) +
+        geom_boxplot(
+            data = data, 
+            aes(
+                x = !!x, 
+                y = !!y, 
+                fill = !!x)
+        )
+    
+    if (!notitle) {
+        g <- g +
+            labs(
+                title = paste0(x, " vs. ", y), 
+                subtitle = paste0("Boxplots coloured by ", x, ", observation plotted in the background.")
+            )
+    }
+    
+    return(g)
+} 
+
+# Generalized function to generate density graphs.
+density_graph <- function(data, x, y, notitle = FALSE) {
+    x <- sym(x)
+    y <- sym(y)
+    
+    g <- ggplot() + 
+        geom_density(
+            data = data, 
+            aes(
+                x = !!y, 
+                fill = !!x
+            ), 
+            alpha = 0.5
+        ) 
+    
+    if (!notitle) {
+        g <- g +
+            labs(
+                title = paste0(x, " vs. ", y), 
+                subtitle = paste0("Density plots coloured by ", x, ".")
+            )
+    }
+    
+    return(g)
+}
+
+# Generalized function to generate point graphs.
+categorical_graph <- function(data, x, y, notitle = FALSE) {
+    x <- sym(x)
+    y <- sym(y)
+    
+    g <- ggplot() +
+        geom_jitter(
+            data = data,
+            aes(
+                x = !!x, 
+                y = !!y,
+                color = !!x
+            ), 
+            size = 0.3
+        ) + 
+        geom_label(
+            data = data %>% group_by(!!x, !!y) %>% summarize(n = n(), .groups = "drop_last"),
+            aes(
+                x = !!x, 
+                y = !!y,
+                label = n
+            )
+        )
+    
+    if (!notitle) {
+        
+        g <- g + 
+            labs(
+                title = paste0(x, " vs. ", y), 
+                subtitle = paste0("Number of observations by category, coloured by ", x, ".")
+            )
+        
+    }
+    
+    return(g)
+    
+}
+
+# Generalized function to generate mosaic graphs.
+mosaic_graph <- function(data, x, y, notitle = FALSE) {
+    x <- sym(x)
+    y <- sym(y)
+    
+    g <- ggplot() +
+        geom_mosaic(
+            data = data,
+            aes(
+                product(
+                    !!y,
+                    !!x
+                ),
+                fill = !!x
+            )
+        )
+    
+    if (!notitle) {
+        
+        g <- g +
+            labs(
+                title = paste0(x, " vs. ", y),
+                subtitle = paste0("Number of observations by category, coloured by ", x, ".")
+            ) 
+    }
+    
+    return(g)
+    
+}
+
+
+# Generalized function to create graphs for numerical variables.
+combined_numerical_graph <- function(data, x, y) {
+  
+  a <- boxplot_graph(data, x, y, notitle = TRUE)
+  b <- density_graph(data, x, y, notitle = TRUE)
+  
+  g <- a + 
+    b + 
+    plot_annotation(
+      title = paste0(x, " vs. ", y),
+      subtitle = paste0("Number of observations by category, coloured by ", x, ".")
+    ) + 
+    plot_layout(guides = "collect")
+  
+  return(g)
+}
+
+# Generalized function to create graphs for categorical variables.
+combined_categorical_graph <- function(data, x, y) {
+  
+  a <- mosaic_graph(data, x, y, notitle = TRUE)
+  b <- categorical_graph(data, x, y, notitle = TRUE)
+  
+  g <- a + 
+    b + 
+    plot_annotation(
+      title = paste0(x, " vs. ", y),
+      subtitle = paste0("Number of observations by category, coloured by ", x, ".")
+    ) + 
+    plot_layout(guides = "collect")
+  
+  return(g)
+}
+```
+
+### Production
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The number of observations is very unequal, but the distribution seems to be similar."}
+combined_numerical_graph(churndat, "churn", "accountlength")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distribution of the 4 categories is very unequal. We have many more cases without churn and many more cases with an international plan."}
+combined_categorical_graph(churndat, "churn", "internationalplan")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The number of observations in the 4 categories is very unequal. Cases of churned non-users of voicemail seem to be more prevalent."}
+combined_categorical_graph(churndat, "churn", "voicemailplan")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distribution for both churn and no-churn seems to be similar, but very skewed with two peaks. Q3 of churned users seems to be much lower than of non-churned users."}
+combined_numerical_graph(churndat, "churn", "numbervmailmessages")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distribution of churned customers seems to have two peaks instead of one."}
+combined_numerical_graph(churndat, "churn", "totaldayminutes")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "Both distributions seem to be quite similar."}
+combined_numerical_graph(churndat, "churn", "totaldaycalls")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distribution of churned customers seems to have two peaks instead of one, similar to totaldayminutes."}
+combined_numerical_graph(churndat, "churn", "totaldaycharge")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distributions seem to be quite similar."}
+combined_numerical_graph(churndat, "churn", "totaleveminutes")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distributions seem to be quite similar."}
+combined_numerical_graph(churndat, "churn", "totalevecalls")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distributions seem to be quite similar."}
+combined_numerical_graph(churndat, "churn", "totalevecharge")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distributions seem to be quite similar."}
+combined_numerical_graph(churndat, "churn", "totalnightminutes")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distributions seem to be quite similar."}
+combined_numerical_graph(churndat, "churn", "totalnightcalls")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distributions seem to be quite similar."}
+combined_numerical_graph(churndat, "churn", "totalnightcharge")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "There seems to be a difference between churned and non-churned users. The distribution of churned users seems to have multiple peaks."}
+combined_numerical_graph(churndat, "churn", "totalintlminutes")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The distribution seems to be different, but the figure is inconclusive."}
+combined_numerical_graph(churndat, "churn", "totalintlcalls")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "There seems to be a difference between churned and non-churned users. The distribution of churned users seems to have multiple peaks, much like the totalintlminutes."}
+combined_numerical_graph(churndat, "churn", "totalintlcharge")
+```
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "The visual examination here is inconclusive. There seems to be a difference of calling behavior between churned and non-churned customers. It could be assumed that customers, who are about to churn, would call more often."}
+combined_numerical_graph(churndat, "churn", "numbercustomerservicecalls")
+```
+
+The visual comparison could become easier if comparing customers with more than 1 call vs. customers with 1 call or less.
+
+```{r, message=FALSE, warning=FALSE, fig.cap= "We can see here that there that calling the customer service more than 1 time may increase the probability that the customer is a candidate for churn."}
+combined_categorical_graph(churndat %>% mutate(has_cc_calls = ifelse(numbercustomerservicecalls > 1, "yes", "no")), "churn", "has_cc_calls")
+```
+
+
+# 2. Split into training and test data
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(1234)
+n <- nrow(churndat)
+id_train <- sample(1:n, floor(0.8 * n))
+train_churndat <- churndat[id_train, ]
+test_churndat <- churndat[-id_train, ]
+```
+
+The dataset is now split into a train set with `r floor(0.8*n)` observations and a test set with `r n - floor(0.8 * n)` observations.
+
+# 3. Logistic regression (all variables)
+
+## Model building
+
+```{r, message=FALSE, warning=FALSE}
+fit_logit_train <- glm(churn~., data = train_churndat, family = binomial())
+```
+
+## Result
+
+* **Model**: `r fit_logit_train$formula`
+* **AIC**: `r round(AIC(fit_logit_train), 2)`
+
+# 4. Logistic regression (step-wise variable selection)
+
+## Model building
+
+```{r, message=FALSE, warning=FALSE}
+step_logit_train <- step(direction = "both", fit_logit_train, trace = FALSE)
+AIC(step_logit_train)
+```
+
+## Result 
+
+Result: 
+
+* **Model**: `r paste(step_logit_train$formula[2], step_logit_train$formula[1], step_logit_train$formula[3])`
+* **AIC**: `r round(AIC(step_logit_train), 2)`
+
+## Comparison with previous model
+
+8 variable were excluded from the previous model by the step function.
+
+For comparison: The AIC is `r round(AIC(step_logit_train), 2)` (step-wise) vs. `r round(AIC(fit_logit_train), 2)` (previous), so only `r round(1-AIC(step_logit_train)/AIC(fit_logit_train), 4)*100`% better. therefore the model from the step-method is not that much better. However, a similar fit with fewer variables can be considered a better model in this context. (*lex parsimoniae*)
+
+# 5. Model evaluation
+
+
+## Predict the churn probability
+
+As the prediction function predicts a "probability" of churn, we need to choose a cutoff. As we have no further reference, we will start with a cutoff at 0.5. This means, e.g., that a predicted value of `0.51` would count as a `churn == "yes"`. 
+
+```{r, message=FALSE, warning=FALSE}
+# Get actual values for reference
+actual_values <- test_churndat[,1]
+
+# Predict churn probability with "big" model 
+predict_all <- predict(fit_logit_train, test_churndat, type = "response")
+
+predict_all <- as.data.frame(predict_all) %>% 
+    # Convert churn probability to factor at 0.5 cutoff
+    mutate(
+        predict_all = ifelse(
+            predict_all < .5,
+            0,
+            1
+        ) %>% 
+            factor(
+                levels = c(0, 1),
+                label = c("no", "yes")
+            )
+    )
+
+# Predict with "step-wise" model
+predict_step <- predict(step_logit_train, test_churndat, type = "response")
+
+predict_step <- as.data.frame(predict_step) %>% 
+    # Convert churn probability to factor at 0.5 cutoff
+    mutate(
+        predict_step = ifelse(
+            predict_step < .5,
+            0,
+            1
+        ) %>% 
+            factor(
+                levels = c(0, 1),
+                label = c("no", "yes")
+            )
+    )
+
+```
+
+## Compare solutions with the contingency tables
+
+```{r, message=FALSE, warning=FALSE}
+table_all <- table(predicted = predict_all$predict_all, observed = actual_values)
+table_all
+
+table_step <- table(predicted = predict_step$predict_step, observered = actual_values)
+table_step
+```
+
+We see already that, as expected, there is an imbalance between the number of reference cases of churned vs. not churned.
+
+## Compare accuracy
+
+```{r, message=FALSE, warning=FALSE}
+accuracy <- c(predict_all = sum(diag(table_all))/sum(table_all),
+              predict_step = sum(diag(table_step))/sum(table_step))
+accuracy
+```
+
+**Accuracy**:
+
+* all variables: `r accuracy["predict_all"]`
+* step-wise selection: `r accuracy["predict_step"]`
+
+The step model has a slightly better accuracy than the model with all variables:
+
+## Compare recall
+
+```{r, message=FALSE, warning=FALSE}
+recall <- c(predict_all = table_all[2,2] / (table_all[1,2] + table_all[2,2]),
+            predict_step = table_step[2,2] / (table_step[1,2] + table_step[2,2])
+)
+recall
+```
+
+**Recall**:
+
+* all variables: `r recall["predict_all"]`
+* step-wise selection: `r recall["predict_step"]`
+
+Recall is bad with both models, but slightly better in the step-wise model.
+
+## Compare precision
+
+```{r, message=FALSE, warning=FALSE}
+precision <- c(predict_all = table_all[2,2] / (table_all[2,1] + table_all[2,2]),
+               predict_step = table_step[2,2] / (table_step[2,1] + table_step[2,2])
+)
+precision
+```
+
+**Precision**:
+
+* all variables: `r precision["predict_all"]`
+* step-wise selection: `r precision["predict_step"]`
+
+Precision is mediocre with both models, but slightly better with the step-wise model.
+
+
+## Bonus: Compare F1 score
+
+As the dataset is highly imbalanced and we would like to improve our prediction, we could benchmark it via the F1 score. As we want to predict churn, this metric's  stronger emphasis on punishing false negatives could help us to determine the strenghth of our models.
+
+```{r, message=FALSE, warning=FALSE}
+f1_all <- 2 * (precision["predict_all"] * recall["predict_all"]) / (precision["predict_all"] + recall["predict_all"])
+f1_step <-2 * (precision["predict_step"] * recall["predict_step"]) / (precision["predict_step"] + recall["predict_step"])
+```
+
+**F1 score**:
+
+* all variables: `r f1_all`
+* step-wise selection: `r f1_step`
+
+We see that the F1 score rather bad with both models, but slightly better with the step-wise model.
+
+# 6. Bonus: Improving the model via cutoff point selection
+
+## Context
+
+Since we have seen that the model performs quite poorly in recalling churned customers, we should think of ways to improve it. One method would be to increase the sensitivity by modifying the cutoff value. (See *5. Model evaluation*) As a sensitivity of 1 would be desirable, but unrealistic (as it often would mean an overfit or an imbalance with another metric), we could use the F1 score as a weighted measure to set the optimal cutoff point for our prediction probability.
+
+## Cutoff point calculation
+
+```{r, message=FALSE, warning=FALSE}
+
+# Create empty result table.
+result <- tibble(
+  cutoff = NULL,
+  f1 = NULL
+)
+
+# Iterate over possible cutoff points and calculate F1 score
+for (i in seq(0, 1, by = 0.001)) {
+  
+  f1opt_logit_train <- predict(step_logit_train, train_churndat, type = "response")
+  f1opt_logit_train <- ifelse(f1opt_logit_train > i, 1, 0) %>% factor(levels = c(0, 1), labels = c("no", "yes"))
+
+  f1 <- F_meas(data = f1opt_logit_train, reference = train_churndat[, 1], relevant = "yes")
+  
+  result <- rbind(
+    result,
+    tibble(
+      cutoff = i,
+      f1 = f1
+    )
+  )
+  
+  rm(p, f1, i)
+  
+}
+
+# Filter best F1 score
+optimal_cutoff <- result %>%
+  filter(
+    f1 == max(f1, na.rm = TRUE)
+  ) %>%
+  slice(1)
+
+# Plot optimization graph
+ggplot() + 
+  geom_point(
+    data = result, 
+    aes(
+      x = cutoff, 
+      y = f1,
+      color = f1
+    ),
+    size = 0.5
+  ) +
+  geom_point(
+    data = optimal_cutoff, 
+    aes(
+      x = cutoff, 
+      y = f1
+    ),
+    color = "red"
+  ) +
+  geom_label_repel(
+    data = optimal_cutoff,
+    aes(
+      x = cutoff,
+      y = f1,
+      label = paste0("F1 = ", round(f1, 3), " | Cutoff = ", round(cutoff, 3))
+    ), 
+    nudge_x = 0.1, 
+    nudge_y = 0.1
+  ) +
+  scale_color_continuous(limits = c(0, 1)) + 
+  coord_cartesian(ylim = c(0, 1), xlim = c(0, 1)) +
+  labs(title= "Step-wise training model with optimal F1 score cutoff point")
+
+```
+
+We see that at the "ideal" probability cutoff point (`r optimal_cutoff$cutoff`) our F1 score **on the training set** is higher than the previous F1 score of the step-wise model.
+
+**F1 score**:
+
+* all variables: `r f1_all` (test)
+* step-wise selection: `r f1_step` (test)
+* F1-optimized model: `r optimal_cutoff$f1` (train)
+
+Now we should test if this model would also perform better in a real world scenario with previously unknown data.
+
+## Implementing the new cutoff value
+
+```{r, message=FALSE, warning=FALSE}
+
+f1opt_logit_test <- predict(step_logit_train, test_churndat, type = "response")
+f1opt_logit_test <- ifelse(f1opt_logit_test > optimal_cutoff$cutoff, 1, 0) %>% factor(levels = c(0, 1), labels = c("no", "yes"))
+f1_f1opt <- F_meas(data = f1opt_logit_test, reference = actual_values, relevant = "yes")
+
+# Generate confusion matrix to extract performance benchmarks
+cm <- confusionMatrix(f1opt_logit_test, reference = actual_values)
+
+# Generate result table
+result_table <- tibble(
+  model = c("all variables", "step-wise", "f1-optimized"),
+  accuracy = c(accuracy["predict_all"], accuracy["predict_step"], cm$overall["Accuracy"]),
+  precision = c(precision["predict_all"], precision["predict_step"], cm$byClass["Pos Pred Value"]),
+  recall = c(recall["predict_all"], recall["predict_step"], cm$byClass["Sensitivity"]),
+  f1 = c(f1_all, f1_step, f1_f1opt)
+)
+result_table
+```
+
+We see that with the new cutoff value has lead to considerably better recall and precision values while keeping accuracy still above 80%. The F1 score of the f1-optimized model with the test set was even better than with the training set.
+
+## Final evaluation
+
+```{r, message=FALSE, warning=FALSE}
+# Generate graph for step-wise model
+d <- tibble(predict_step, actual_values)
+g1 <- ggplot() + 
+    geom_jitter(
+        data = d, 
+        aes(
+            x = predict_step, 
+            y = actual_values,
+            color = predict_step == actual_values
+        ), 
+        size = 0.3
+    ) +
+    geom_label(
+        data = d %>% group_by(predict_step, actual_values) %>% summarize(n = n(), .groups = "drop_last"),
+        aes(
+            x = predict_step, 
+            y = actual_values,
+            label = n
+        )
+    ) + 
+    labs(title = "Step-wise model", color = "Correct prediction")
+    
+
+# Generate graph for F1-score-optimized model
+d <- tibble(f1opt_logit_test, actual_values)
+g2 <- ggplot() + 
+    geom_jitter(
+        data = d, 
+        aes(
+            x = f1opt_logit_test, 
+            y = actual_values,
+            color = f1opt_logit_test == actual_values
+        ), 
+        size = 0.3
+    ) +
+    geom_label(
+        data = d %>% group_by(f1opt_logit_test, actual_values) %>% summarize(n = n(), .groups = "drop_last"),
+        aes(
+            x = f1opt_logit_test, 
+            y = actual_values,
+            label = n
+        )
+    ) + 
+    labs(title = "F1-score-optimized model", color = "Correct prediction")
+
+# Generate graph to compare step-wise and F1-score-optimized models 
+g1 + g2 +   plot_layout(guides = 'collect')
+```
+
+We see that with the F1-score-optimized model we have significantly **increased the number of true positives** at the **cost of more false positives**. Is this a good or a bad thing?
+
+In practice, the cost of **winning a new customer** is often considerably larger than the cost of **keeping an existing customer**. Lost lifetime value and missed out effects from positive word-of-mouth often overshadow the cost of giving out a coupon or a one-off discount. 
+
+If we take these assumption as given, then the F1-score-optimized model does definitely seem to lead to a **better outcome for the actual business goal** of this exercise: **Identifying potential churns in a customer database and keeping clients**.
+
+
+
+
