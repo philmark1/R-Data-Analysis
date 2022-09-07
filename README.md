@@ -11,3 +11,13 @@ Project 1.:
 🔗to the html file: https://tinyurl.com/college-data-exploration
 
 (I attached the .rmd file, which can be downloaded to replicate the code in RStudio. The data is automatically downloaded from an online repository from the Data Science department (included an excel file as an extra tough, should the file be removed sometime).)
+
+Project 2:
+- The aim of the project was to analyse the customer turnover or churn of a telecommunications company.
+- After an exploratory analysis, I did a basic logistic regression with all variable and did a step-wise variable selection for an optimized model
+- I then compared both model's churn probability, accuracy, recall, precision & F1 scores
+- Lastly, as a bonus, I also tried to improve the model via a cutoff point selection
+
+🔗to the html file: https://tinyurl.com/shoppingchurnprediction
+
+Project 3:
