@@ -1,6 +1,6 @@
 # R-Data-Analysis
 
-Data Analysis projects that I did for Uni (course: Data Analytics):
+Below are html files to some data analysis projects that I did for Uni (course: Data Analytics). I also attached the respective .rmd notebooks and datasets (as a backup, should the web-source not be available anymore) in the respective repository folders. The projects can thus be simply replicated in RStudio. 
 
 Project 1.:
 - Task was a descriptive Analysis of U.S. College Data from Iowa.
@@ -9,8 +9,6 @@ Project 1.:
 - Lastly, I split into training & test data-set, normalized the data & applied a knn (K-nearest-neighbor) regression
 
 🔗to the html file: https://tinyurl.com/college-data-exploration
-
-(I attached the .rmd file, which can be downloaded to replicate the code in RStudio. The data is automatically downloaded from an online repository from the Data Science department (included an excel file as an extra tough, should the file be removed sometime).)
 
 Project 2:
 - The aim of the project was to analyse the customer turnover or churn of a telecommunications company.
