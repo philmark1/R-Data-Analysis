@@ -29,3 +29,9 @@ Project 3:
 🔗to the html file: https://tinyurl.com/customerchurnprediction2
 
 Project 4:
+- The goal of the analysis was to perform customer segmentation using cluster analysis for an online retailer based on the RMF ("Recency, Frequency, Monetary Value") strategy.
+- Visualized the data - pair plots for the 3 variables (for 3d graph plotly package used)
+- Performed clustering using k-means, hierarchical clustering and dbscan.
+- Interpreted the groups.
+
+🔗to the html file: https://tinyurl.com/rmfanalysis
