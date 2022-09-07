@@ -1,0 +1,284 @@
+---
+title: "Assignment 4 - RMF Analysis"
+author: "Philipp Markopulos"
+date: "November 28th, 2021"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+editor_options:
+  chunk_output_type: console
+header-includes:
+- \usepackage{titling}
+- \posttitle{\end{center}}
+---
+
+```{r setup}
+load(url("http://statmath.wu.ac.at/~vana/datasets/RMFAnalysisClean.rda"))
+head(RMFAnalysisClean)
+```
+
+Recency (How recently did the customer make a purchase?); Frequency (How often do they purchase); Monetary Value (How much do they spend?)
+
+# Visualisation
+## 2D graphs
+
+```{r cars}
+#plotly used for visualisation
+
+# make 2d pairs
+op <- par(mfrow = c(1,3))
+plot(RMFAnalysisClean$Recency, RMFAnalysisClean$Frequency, 
+     ylab = "Frequency", xlab = "Recency")
+plot(RMFAnalysisClean$Recency, RMFAnalysisClean$Monetary.mean, 
+     ylab = "monetary mean", xlab = "Recency")
+plot(RMFAnalysisClean$Monetary.mean, RMFAnalysisClean$Frequency, 
+     ylab = "Frequency", xlab = "monetary mean")
+```
+
+
+```{r pressure, echo=FALSE}
+par(op)
+
+# 6 2d pairs
+plot(RMFAnalysisClean, col=rainbow(7),main = "")
+```
+
+## 3D graph
+```{r}
+library(plotly)
+fig <- plot_ly(RMFAnalysisClean, x = ~Recency, y = ~Frequency, z = ~Monetary.mean, marker = list(color = ~Monetary.mean, colorscale = c('#FFE1A1', '#683531'), showscale = TRUE))
+fig <- fig %>% add_markers()
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'Recency'),
+                                   yaxis = list(title = 'Frequency'),
+                                   zaxis = list(title = 'Monetary Value')))
+
+fig
+```
+
+Data is spread around Recency, while it is mostly grouped around Monetary Value 0 to 1500 and Frequency 0 to 20
+
+# Choosing the number of clusters and performing clustering
+
+## Choosing the number of clusters
+```{r}
+K <- 2:15
+nstart <- 5
+
+RMFAnalysisClean_scaled <- scale(RMFAnalysisClean)
+```
+
+### WSS
+```{r}
+# Within Sum of Squares
+set.seed(12345) 
+
+WSS <- sapply(K, function(x) { 
+  kmeans(RMFAnalysisClean_scaled, centers = x,
+         nstart=nstart)$tot.withinss
+  })
+```
+
+```{r}
+plot(K, WSS, type="b")
+```
+
+it is an ‘elbow’, so we should perform other methods.
+
+### ASW
+
+```{r}
+library(fpc)
+# we decreased K for faster computation
+K <- 2:10 
+set.seed(12345)
+
+ASW <- sapply(K, function(x) { 
+  d <- dist(RMFAnalysisClean_scaled)
+  cl <- kmeans(RMFAnalysisClean_scaled, centers = x,
+               nstart=nstart)$cluster
+  cluster.stats(d, cl)$avg.silwidth
+})
+
+plot(K, ASW, type="b")
+```
+maximum at K=4 and next maximum is K=5. By using the next method we will conclude K.
+
+### Dunn Index
+
+```{r}
+set.seed(12345)
+
+DI <- sapply(K, function(x) { 
+  d <- dist(RMFAnalysisClean_scaled)
+  cl <- kmeans(RMFAnalysisClean_scaled, centers = x, 
+               nstart = nstart)$cluster
+  cluster.stats(d, cl)$dunn
+})
+
+plot(K, DI, type="b")
+```
+chosen where the Dunn index is maximal and maximum is attained at K=3, next maximum is K=6.
+
+Chosen number of clusters is 6.
+
+# Performing clustering
+
+### K-means clustering
+
+```{r}
+set.seed(12345)
+# Manually select number of initial values and clusters
+nstart <- 5
+clusters <- 6
+
+model.pc <- kmeans(RMFAnalysisClean_scaled, 
+                   centers = clusters, 
+                   nstart = nstart)
+
+model.pc$centers
+```
+
+### Hierarchical clustering
+
+```{r}
+d <- dist(RMFAnalysisClean_scaled) # Euclidean distance matrix
+model.hc <- hclust(d)
+```
+
+The dendrogram can be visualized and should be cut. We can specify the number of clusters that we want to achieve and cut the tree at the corresponding height:
+
+```{r}
+groups <- cutree(model.hc, k=clusters)
+
+plot(model.hc)
+rect.hclust(model.hc, k=clusters)
+```
+### DBSCAN
+
+```{r}
+library(dbscan)
+kNNdistplot(RMFAnalysisClean_scaled, k = 6) 
+abline(h = 0.7, lty = 2)
+```
+
+so it seems like a reasonable choice.
+
+```{r}
+model.dbs <- dbscan::dbscan(RMFAnalysisClean_scaled, 
+                            eps = 0.7, 
+                            minPts = 3)
+
+model.dbs
+```
+
+DBSCAN identifies 8 clusters and 21 noise points. We observe the large cluster 6 and other clusters are small.
+
+# Final result and comparison
+
+```{r}
+RMFAnalysisClean_scaled_df <- as.data.frame(scale(RMFAnalysisClean))
+```
+
+## Graphs comparisons 
+### DBSCAN
+
+```{r}
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+plot(RMFAnalysisClean_scaled_df, col = cbbPalette[model.dbs$cluster + 1])
+```
+
+### Hierarchical clustering
+
+```{r}
+plot(RMFAnalysisClean_scaled_df, col=cbbPalette[groups], main = "hclust")
+```
+
+### K-means clustering
+
+```{r}
+plot(RMFAnalysisClean_scaled_df, col=cbbPalette[model.pc$cluster], main = "K-means")
+```
+First thing we can say is that DBSCAN performed badly. Our observations are pretty much grouped and density-based method assigned almost all of the observations to one cluster. Hierarchical and K-means clustering, so distance-based methods performed better and they divided customers in several groups based Monetary.mean and Frequency. K-means also divided in 2 groups based on Recency (green and blue groups).
+
+## Interpreting results
+
+To interpret the results, we will work with K-means, as it divided the data the best. We will plot the unscaled data and divide it in groups and then analyse the averages to interpret groups
+
+### K-means clustering with unscaled data
+
+```{r}
+RMFAnalysisClean$group <- model.pc$cluster
+
+plot(RMFAnalysisClean[, 1:3], col=cbbPalette[RMFAnalysisClean$group], 
+     main = "K-means")
+```
+
+```{r}
+RMFAnalysisClean_means <- data.frame(matrix(ncol = 3, nrow = 6))
+colnames(RMFAnalysisClean_means) <- c("Frequency", "Monetary.mean", "Recency")
+
+for (i in 1:6){
+  RMFAnalysisClean_means$Frequency[i] <- mean(RMFAnalysisClean$Frequency[RMFAnalysisClean$group == i])
+  RMFAnalysisClean_means$Monetary.mean[i] <- mean(RMFAnalysisClean$Monetary.mean[RMFAnalysisClean$group == i])
+  RMFAnalysisClean_means$Recency[i] <- mean(RMFAnalysisClean$Recency[RMFAnalysisClean$group == i])
+}
+RMFAnalysisClean_means
+```
+
+### Interpreting groups
+
+3rd group, which is light blue on the graph, are customers that spent the most amount of money. Monetary.mean = 4065.7404545
+
+Averages of Frequency, Monetary.mean and Recency:
+```{r}
+RMFAnalysisClean_means[3,]
+```
+4th group, which is green on the graph, are customers that spent more than average amount of money. Monetary.mean = 941.2325562
+
+Averages of Frequency, Monetary.mean and Recency:
+```{r}
+RMFAnalysisClean_means[4,]
+```
+
+2nd group, which is orange on the graph, are customers that purchase the most frequently. Frequency = 34.4871795
+
+Averages of Frequency, Monetary.mean and Recency:
+```{r}
+RMFAnalysisClean_means[2,]
+```
+
+6th group, which is dark blue on the graph, are customers that purchase more frequently, than average. Frequency = 12.4109347
+
+Averages of Frequency, Monetary.mean and Recency:
+```{r}
+RMFAnalysisClean_means[6,]
+```
+
+5th group, which is yellow on the graph, are customers that purchased the most recently, but do not purchase frequently. Recency = 46.003866
+
+```{r}
+#average frequency 
+mean(RMFAnalysisClean$Frequency)
+```
+
+```{r}
+#group 4 average frequency
+RMFAnalysisClean_means$Frequency[5]
+```
+
+Averages of Frequency, Monetary.mean and Recency:
+```{r}
+RMFAnalysisClean_means[5,]
+```
+1st group, which is black on the graph, are customers that purchased the least recently. Recency = 249.0255363
+
+Averages of Frequency, Monetary.mean and Recency:
+```{r}
+RMFAnalysisClean_means[1,]
+```
+
