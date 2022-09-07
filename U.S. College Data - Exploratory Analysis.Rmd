@@ -1,0 +1,954 @@
+---
+title: "Assignment 1 - College Data - Descriptive Analysis"
+author:
+- name: Philipp Markopulos
+  email: h12030674@wu.ac.at
+date: "October 20th, 2021"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+editor_options:
+  chunk_output_type: console
+---
+# Preparation
+
+## Load libraries
+
+```{r, message=FALSE, warning=FALSE}
+library("ISLR")
+library("stats")
+library("tidyverse")
+library("ggplot2")
+library("caret")
+library("ggbeeswarm")
+library("patchwork")
+library("Metrics")
+library("FNN")
+```
+
+## Load data
+
+```{r, message=FALSE, warning=FALSE}
+data("College")
+```
+
+# Task 1
+
+## Descriptive statistics: 
+### Summary
+
+We are dealing with a statistics for a number of US colleges from the 1995 issue of U.S. News and World Report. This data contains that year's number of applications to those colleges, as well as acceptance and enrollment numbers. Each line also contains some underlying attributes of the colleges like tuition or data on the faculty staff.
+
+### Structure of the data
+
+```{r, message=FALSE, warning=FALSE}
+str(College)
+```
+
+There are 777 observations of 18 variables. All variables except `Private`, which is a factor with two levels, are numeric. 
+
+```{r, message=FALSE, warning=FALSE}
+College %>%
+    group_by(Private) %>%
+    summarize(n = n()) %>%
+    ggplot() + 
+    geom_col(
+        aes(
+            Private,
+            n,
+            fill = Private
+        )
+    ) +
+    labs(
+        title = "Number of Colleges\nby College Type" 
+    ) +
+    ggplot(College) + 
+    geom_col(
+        aes(
+            Private,
+            Apps,
+            fill = Private
+        )
+    ) +
+    labs(
+        title = "Total Number of Applications\nby College Type" 
+    ) 
+```
+
+It is also evident that the data contains far more private than public colleges. These private colleges, however, seem to have fewer applications on average.
+
+```{r, message=FALSE, warning=FALSE}
+summary(College)
+```
+
+Some variables seem to have suspicious data points: 
+
+* `PhD`, which is the ratio of PhD holders in teaching staff, has a max value of 103.
+* `Grad.Rate`, which is the graduation rate, has a max value of 118.
+
+Those values need to be dealt with by either removal or truncation.
+
+There seem to be no other missing or invalid values in the data.
+
+```{r, message=FALSE, warning=FALSE}
+moments::skewness(College[,2:18]) %>% abs() %>% sort(decreasing = TRUE)
+```
+
+Most variables are skewed (absolute value of skewness > 0.5); some extremeley so (skewness > 1.0). Only the graduation rate (`Grad.Rate`) and the number of students from the top 25% of their high school class (`Top25perc`) are not substantially skewed. 
+
+This suggests that there are large differences between the observations.
+
+### Correlation among numeric variables
+
+
+```{r, message=FALSE, warning=FALSE}
+cor_test_result <- cor(College[,-1]) %>% as_tibble()
+
+# At least moderately correlated variables
+cor_test_result_low <- cor_test_result %>% 
+  mutate(
+    across(
+      everything(), 
+        ~ifelse(
+          . < .25, 
+          NA_real_, 
+          .
+        )
+      )
+    )
+cor_test_result_low
+```
+
+We can see that many variables are at least moderately correlated.
+
+```{r, message=FALSE, warning=FALSE}
+# Highly correlated variables
+cor_test_result_high <- cor_test_result %>% 
+  mutate(
+    across(
+      everything(), 
+      ~ifelse(
+        . < .75, 
+        NA_real_, 
+        .
+      )
+    )
+  )
+cor_test_result_high 
+```
+
+Some variables are extremely correlated and probably should be investigated further.
+
+
+## Data visualization
+### Apps and Private
+
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_quasirandom(
+        data = College, 
+        aes(
+            x = 1,
+            y = Apps,
+            color = Private
+        ),
+        size = 0.5
+    )  +
+    labs(
+        title = "College type vs. Applications",
+        subtitle = "With log10 transformation, colored by college type, with regression line"
+    ) + 
+    theme(
+        axis.title.x = element_blank(), 
+        axis.ticks.x = element_blank(), 
+        axis.text.x = element_blank()
+    )  +
+    labs(
+      title = "Number of Aplications by College Type"
+    )
+```
+
+From the figure it can be assumed that private colleges more often have fewer applications than public colleges.
+
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_quasirandom(
+        data = College, 
+        aes(
+            x = Private,
+            y = Apps,
+            color = Private
+        ),
+        size = 0.5
+    ) +
+    geom_boxplot(
+        data = College, 
+        aes(
+            x = Private,
+            y = Apps
+        ),
+        alpha = 0.5,
+        outlier.color = NA
+    )  +
+    labs(
+      title = "College type vs. Applications",
+      subtitle = "With log10 transformation, colored by college type, with regression line"
+    )
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+quantile(College$Apps[College$Private == "Yes"])
+```
+
+```{r, message=FALSE, warning=FALSE}
+quantile(College$Apps[College$Private == "No"])
+```
+
+The assumption can be verified by looking at the boxplots and quantiles. The data shows that there is a potentially significant difference between colleges that are private vs. public colleges: 
+
+* The 25th percentile of applications of public colleges is higher than the 75th percentile of the number of applications of private colleges.
+* Public colleges contain the highest outlier at around 48,000 applications.
+* The value band of 25th to 75th percentiles is much smaller for private colleges than for public ones.
+* However, private colleges contain a large number of outliers with around 5,000 to 15,000 applications beyond 1.5\*IQR (beyond the end of the top boxplot whisker).
+
+
+### Apps and Accept
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_point(
+        data = College, 
+        aes(
+            x = Accept,
+            y = Apps
+        ),
+        alpha = 0.5
+    ) +
+    labs(
+      title = "Accepted Students vs. Applications"
+    )
+```
+
+The first look at the plot suggest a linear relationship.
+
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_point(
+        data = College, 
+        aes(
+            x = Accept,
+            y = Apps,
+            color = Private
+        ),
+        alpha = 0.5
+    ) + 
+    geom_smooth(
+        data = College[College$Private == "Yes", ], 
+        aes(
+            x = Accept,
+            y = Apps
+        ),
+        color = "#00BFC4",
+        alpha = 0.5,
+        method = "lm"
+    ) + 
+    geom_smooth(
+        data = College[College$Private == "No", ], 
+        aes(
+            x = Accept,
+            y = Apps
+        ),
+        color = "#F8766D",
+        alpha = 0.5,
+        method = "lm"
+    ) + 
+    scale_x_log10() +
+    scale_y_log10() +
+    labs(
+      title = "Accepted Students vs. Applications",
+      subtitle = "With log10 transformation of x and y, colored by college type, with regression line"
+    )
+```
+
+This can also be verified by closer visual examination. Logically, it also makes sense that, theoretically, only colleges with a large number of applications can have a large number of accepts.
+
+### Apps and PhD
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_point(
+        data = College, 
+        aes(
+            x = PhD,
+            y = Apps
+        ),
+        alpha = 0.5
+    ) +
+    labs(
+      title = "Ratio of PhD holders in faculty vs. Applications"
+    )
+```
+
+A first look suggests a slightly linear or exponential relationship.
+
+
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_point(
+        data = College, 
+        aes(
+            x = PhD,
+            y = Apps,
+            color = Private
+        ),
+        alpha = 0.5
+    ) + 
+    geom_smooth(
+        data = College[College$Private == "Yes", ], 
+        aes(
+            x = PhD,
+            y = Apps
+        ),
+        color = "#00BFC4",
+        alpha = 0.5,
+        method = "lm"
+    ) + 
+    geom_smooth(
+        data = College[College$Private == "No", ], 
+        aes(
+            x = PhD,
+            y = Apps
+        ),
+        color = "#F8766D",
+        alpha = 0.5,
+        method = "lm"
+    ) + 
+    scale_y_log10() +
+    labs(
+      title = "Ratio of PhD holders in faculty vs. Applications",
+      subtitle = "With log10 transformation of y, colored by college type, with regression line"
+    )
+```
+
+Closer examination shows that there are differences in the slope of the curve between private and public colleges.
+
+### Apps and S.F.Ratio
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_point(
+        data = College, 
+        aes(
+            x = S.F.Ratio,
+            y = Accept
+        ),
+        alpha = 0.5
+    ) +
+    labs(
+      title = "Ratio of Students-to-Faculty-Members vs. Applications",
+      subtitle = "With log10 transformation of y, colored by college type, with regression line"
+    )
+```
+
+From a first examination, no evident relationship is visible.
+
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+    geom_point(
+        data = College, 
+        aes(
+            x = S.F.Ratio,
+            y = Apps,
+            color = Private
+        ),
+        alpha = 0.5,
+        size = 0.5
+    ) + 
+    geom_smooth(
+        data = College[College$Private == "Yes", ], 
+        aes(
+            x = S.F.Ratio,
+            y = Apps
+        ),
+        color = "#00BFC4",
+        alpha = 0.5,
+        size = 0.5,
+        method = "lm"
+    ) + 
+    geom_smooth(
+        data = College[College$Private == "No", ], 
+        aes(
+            x = S.F.Ratio,
+            y = Apps
+        ),
+        color = "#F8766D",
+        alpha = 0.5,
+        size = 0.5,
+        method = "lm"
+    ) + 
+    scale_y_log10() +
+    labs(
+      title = "Ratio of Students-to-Faculty-Members vs. Applications",
+      subtitle = "With log10 transformation of y, colored by college type, with regression lines"
+    )
+
+ggplot() +
+    geom_point(
+        data = College, 
+        aes(
+            x = S.F.Ratio,
+            y = Apps,
+            color = Private
+        ),
+        alpha = 0.5,
+        size = 0.5
+    ) + 
+    scale_y_log10() +
+    facet_grid(. ~ Private) +
+    labs(
+      title = "Ratio of Students-to-Faculty-Members vs. Applications",
+      subtitle = "With log10 transformation of y, colored by college type, faceted by college type"
+    )
+```
+
+Closer examination show also here the differences between public and private colleges. Furthermore, it could be assumed that the differences related to `S.F.Ratio` could be better captured by a clustering method.
+
+## Preprocessing & further questions
+
+### General problems with the data
+
+As there are some **faulty variable values** in the data, they should be further investigated and treated before model building. 
+
+Furthermore, some variables show **large skews** that could negatively impact the model if the residuals follow a non-normal distribution as well.
+
+(max(College$Apps) - quantile(College$Apps, .75)) / IQR(College$Apps)
+
+```{r, message=FALSE, warning=FALSE}
+(max(College$Apps) - quantile(College$Apps, .75)) / IQR(College$Apps) %>% unlist()
+```
+
+The outcome, `Application`, also has outliers far beyond 1.5\*IQR (with the highest being more than 15\*IQR above Q3) that should be treated for model robustness.
+
+### Problems regarding linear regression
+
+Linear regression assumes the following:
+
+1. **Linearity**: The relationship of predictors and the outcome is linear.
+2. **Independence**: Residuals are independent and predictor variables are not codependent.
+3. **Homoscedasticity** The variance of residuals is constant.
+4. **Normality**: Residuals follow a normal distribution.
+
+
+```{r, message=FALSE, warning=FALSE}
+shw_test_result <- tibble(
+    var_id = 1,
+    var_name = "Private",
+    statistic = NA_real_,
+    p_value = NA_real_
+)
+
+for(i in 2:ncol(College)) {
+    shw_test <- shapiro.test(College[,i])
+    shw_test_result <- bind_rows(
+        shw_test_result,
+        tibble(
+            var_id = i,
+            var_name = colnames(College)[i],
+            statistic = shw_test$statistic,
+            p_value = shw_test$p.value
+        )
+    )
+    rm(shw_test)
+}
+
+shw_test_result
+```
+
+A Shapiro-Wilk test for normality shows that all **residuals of variable are non-normal*** (the null hypotheses are rejected with a `p-value` below 0.05). Only `Grad.Rate` shows a fairly high test statistic (0.995). This is consistent with the previous assumption that the distribution of the variable `Grad.Rate` is the closest to a normal distribution.
+
+Furthermore, the variables `Accept`, `Enroll`, `Top10perc`, and `Top25perc` are **clearly dependent** on the outcome, i.e. `Apps`. 
+
+The visual investigation has also led to the assumption that the impact of the `Private` variable on the outcome might be **non-linear**.
+
+(A test for **heteroscedasticity**, e.g. a Breusch-Pagan test, can only performed after model building.)
+
+We can see already at this stage that most basic principles of linear regression modeling are violated, therefore model building should be problematic.
+
+
+# Task 2
+
+## Preprocessing
+
+```{r, message=FALSE, warning=FALSE}
+ college_cleaned <- College %>%
+  
+    # Prettify variable names 
+    rename(
+        Applications = Apps,
+        Enrolled = Enroll,
+        Accepted = Accept,
+        PercTop10 = Top10perc,
+        PercTop25 = Top25perc,
+        FTUndergrad = F.Undergrad,
+        PTUndergrad = P.Undergrad,
+        CostOutstate = Outstate,
+        CostRoomBoard = Room.Board,
+        CostBooks = Books,
+        CostPersonal = Personal,
+        ExpenditurePerStudent = Expend,
+        GradRate = Grad.Rate,
+        PercAlumniDonation = perc.alumni,
+        SFRatio = S.F.Ratio,
+        PercPhD = PhD,
+        PercTerminal = Terminal, 
+    ) %>%
+  
+    # Correct wrong values
+    mutate(
+      GradRate = ifelse(GradRate > 100, 100, GradRate),
+      PercPhD = ifelse(PercPhD > 100, 100, PercPhD)
+    ) %>%
+     
+    # Remove outliers beyond 1.5*IQR above Q3 or below Q1
+    filter(
+        !(Applications < quantile(College$Apps, .25) - IQR(College$Apps) * 1.5),
+        !(Applications > quantile(College$Apps, .75) + IQR(College$Apps) * 1.5),
+    )
+```
+
+```{r, message=FALSE, warning=FALSE}
+    ggplot() +
+    geom_quasirandom(
+        data = College, 
+        aes(
+            x = Private,
+            y = Apps,
+            color = Private
+        ),
+        size = 0.5
+    ) +
+    geom_boxplot(
+        data = College, 
+        aes(
+            x = Private,
+            y = Apps
+        ),
+        alpha = 0.5,
+        outlier.color = NA
+    )  +
+    labs(
+        title = "College type vs. Applications",
+        subtitle = "Before outlier treatment"
+    ) + 
+    coord_cartesian(
+        ylim = c(0, 50000)
+    ) +
+    ggplot() +
+    geom_quasirandom(
+        data = college_cleaned, 
+        aes(
+            x = Private,
+            y = Applications,
+            color = Private
+        ),
+        size = 0.5
+    ) +
+    geom_boxplot(
+        data = college_cleaned, 
+        aes(
+            x = Private,
+            y = Applications
+        ),
+        alpha = 0.5,
+        outlier.color = NA
+    ) + 
+    coord_cartesian(
+        ylim = c(0, 50000)
+    ) +
+    labs(
+        title = "College type vs. Applications",
+        subtitle = "After outlier treatment"
+    )
+```
+
+## Linear Regression (All Variables)
+
+### Model Building
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+smallest_model <- lm(Applications ~ 1, data = college_cleaned) 
+biggest_model  <- lm(Applications ~ ., data = college_cleaned) 
+```
+
+### Significance of Variables in Model
+
+```{r, message=FALSE, warning=FALSE}
+summary(biggest_model)
+```
+
+The following variables are significant (with a p-value below 0.5): 
+
+* `PrivateYes`
+* `Accepted`
+* `Enrolled`
+* `Top10perc`
+* `CostOutstate`
+* `CostRoomBoard`
+* `SFRatio`
+* `ExpenditurePerStudent`
+* `GradRate`
+
+# Task 3
+
+## Linear Regression (Reduced Variables)
+
+### Variables to Exclude
+
+```
+Accept
+Number of applications accepted
+```
+
+```
+Enroll
+Number of new students enrolled
+```
+```
+Top10perc
+Pct. new students from top 10% of H.S. class
+```
+
+```
+Top25perc
+Pct. new students from top 25% of H.S. class
+```
+
+All of the above variables are clearly **dependent on the outcome**, i.e. the number of applications, and should be removed from the data to create a model, as they are probably not available at the moment of prediction.
+
+What would be possible in a further stage of model development is to take **historical** application data (e.g. **last year's acceptance numbers**) to improve the predictions for the future or to engineer new variables that might be better suited to predict the outcome (e.g. **acceptance rate**).
+
+```{r, message=FALSE, warning=FALSE}
+college_cleaned_2 <- college_cleaned %>%
+  select(
+    -Accepted,
+    -Enrolled,
+    -PercTop10,
+    -PercTop25
+  )
+
+```
+
+### Model Building
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+smallest_model_2 <- lm(Applications ~ 1, data = college_cleaned_2) 
+biggest_model_2  <- lm(Applications ~ ., data = college_cleaned_2) 
+```
+
+### Significance of Variables in Model
+
+```{r, message=FALSE, warning=FALSE}
+summary(biggest_model_2)
+```
+
+The significance of variables has change. In this model, the following variables are significant (with a p-value below 0.5): 
+
+* `PrivateYes`
+* `FTUndergrad`
+* `PTUndergrad`
+* `CostOutstate`
+* `CostRoomBoard`
+* `SFRatio`
+* `PercAlumniDonation`
+* `ExpenditurePerStudent`
+* `GradRate`
+
+### Model Comparison
+
+```{r, message=FALSE, warning=FALSE}
+anova(biggest_model, biggest_model_2)
+```
+
+It is visible that the new "big" model has a significantly (with a p-value below 0.05) higher RSS than the previous one. Therefore, it can be considered worse (but probably more realistic).
+
+## Bonus: Linear Regression (with Feature Engineering)
+
+### Context
+
+It could be assumed **acceptance rates**, the number of accepted applications vs. the number of total applications, and the **enrollment rates**, the number of enrolled students vs. the number of accepted applications, are long-standing quasi-constants at colleges. 
+
+**We could, therefore, build a new model based on these assumptions and test it against our "realistic" model 2.**
+
+### Feature Engineering
+
+```{r, message=FALSE, warning=FALSE}
+college_cleaned_3 <- college_cleaned %>%
+    mutate(
+        AcceptanceRate = Accepted / Applications,
+        EnrolledToAccepted = Enrolled / Accepted
+    ) %>%
+  select(
+    -Accepted,
+    -Enrolled,
+    -PercTop10,
+    -PercTop25
+  )
+```
+
+### Model Building
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+smallest_model_3 <- lm(Applications ~ 1, data = college_cleaned_3) 
+biggest_model_3  <- lm(Applications ~ FTUndergrad+PTUndergrad+CostOutstate+CostRoomBoard+CostBooks+CostPersonal+PercPhD+PercTerminal+SFRatio+PercAlumniDonation+ExpenditurePerStudent+GradRate+AcceptanceRate+EnrolledToAccepted, data = college_cleaned_3) 
+```
+
+### Significance of Variables in Model
+
+```{r, message=FALSE, warning=FALSE}
+summary(biggest_model_3)
+```
+
+The significance of variables has changed. In this model, the following variables are significant (with a p-value below 0.5): 
+
+* `PrivateYes`
+* `FTUndergrad`
+* `PTUndergrad`
+* `CostOutstate`
+* `SFRatio`
+* `PercAlumniDonation`
+* `ExpenditurePerStudent`
+* `GradRate`
+
+Furthermore, our two new features are significant as well:
+
+* `AcceptanceRate`
+* `EnrolledToAccepted`
+
+### Model Comparison
+
+```{r, message=FALSE, warning=FALSE}
+anova(biggest_model_2, biggest_model_3)
+```
+
+It is visible that the new "engineered" model has a significantly (with a p-value below 0.05) lower RSS than the previous one. Therefore, it can be considered better.
+
+## Bonus: Linear Regression (with Split per College Type)
+
+### Context
+
+It has become evident that there are stark differences in data between private and public colleges, as well as a skewed distribution of the two expressions of `Private` in the sample.
+
+It could be, therefore, advisable to **build two dedicated models** that tackle the applications to the two different college types individually.
+
+### Data Split
+
+```{r, message=FALSE, warning=FALSE}
+college_cleaned_4_private <- college_cleaned %>%
+    mutate(
+        AcceptanceRate = Accepted / Applications,
+        EnrolledToAccepted = Enrolled / Accepted
+    ) %>%
+  select(
+    -Accepted,
+    -Enrolled,
+    -PercTop10,
+    -PercTop25
+  ) %>%
+  filter(
+    Private == "Yes"
+  )
+
+college_cleaned_4_public <- college_cleaned %>%
+    mutate(
+        AcceptanceRate = Accepted / Applications,
+        EnrolledToAccepted = Enrolled / Accepted
+    ) %>%
+  select(
+    -Accepted,
+    -Enrolled,
+    -PercTop10,
+    -PercTop25
+  ) %>%
+  filter(
+    Private == "No"
+  )
+
+```
+
+### Model Building
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+smallest_model_4_private <- lm(Applications ~ 1, data = college_cleaned_4_private) 
+biggest_model_4_private  <- lm(Applications ~ FTUndergrad+PTUndergrad+CostOutstate+CostRoomBoard+CostBooks+CostPersonal+PercPhD+PercTerminal+SFRatio+PercAlumniDonation+ExpenditurePerStudent+GradRate+AcceptanceRate+EnrolledToAccepted, data = college_cleaned_4_private) 
+
+smallest_model_4_public <- lm(Applications ~ 1, data = college_cleaned_4_public) 
+biggest_model_4_public  <- lm(Applications ~ FTUndergrad+PTUndergrad+CostOutstate+CostRoomBoard+CostBooks+CostPersonal+PercPhD+PercTerminal+SFRatio+PercAlumniDonation+ExpenditurePerStudent+GradRate+AcceptanceRate+EnrolledToAccepted, data = college_cleaned_4_public) 
+```
+
+### Significance of Variables in Model
+
+```{r, message=FALSE, warning=FALSE}
+summary(biggest_model_4_private)
+summary(biggest_model_4_public)
+```
+
+The significance of variables has changed. We see that both models rely on different variables to varying degrees.
+
+### Model Evaluation
+
+```{r, message=FALSE, warning=FALSE}
+AIC(biggest_model_4_public)
+AIC(biggest_model_4_private)
+```
+
+It is visible that the 2 new "specialized" model have a tighter fit (lower AIC) than the previous "general" model. However, a possible overfit should be investigated.
+
+# Task 4
+  
+## Stepwise Variable Selection 
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+#using step with the prepared data and the new columns
+smallest_model_3 <- lm(Applications~1, data = college_cleaned_3)
+step(smallest_model_3, direction = "forward", scope = Applications~FTUndergrad+PTUndergrad+CostOutstate+CostRoomBoard+CostBooks+CostPersonal+PercPhD+PercTerminal+SFRatio+PercAlumniDonation+ExpenditurePerStudent+GradRate+AcceptanceRate+EnrolledToAccepted)
+
+#using step with "old" data
+smallest_model_with_old_data <- lm(Apps ~ 1, data = College)
+step_fwd <- step(smallest_model_with_old_data, direction = "forward", scope = Apps~Accept+Enroll+Top10perc+Top25perc+F.Undergrad+P.Undergrad+Outstate+Room.Board+Books+Personal+PhD+Terminal+S.F.Ratio+perc.alumni+Expend+Grad.Rate)
+```
+
+# Task 5
+
+## Interpretation of Step-Wise Model
+
+The final step has an AIC of 9495.2 and includes:
+
+* `FTUndergrad`
+* `PTUndergrad`
+* `EnrolledToAccepted`
+* `AcceptanceRate`
+* `GradRate`
+* `ExpenditurePerStudent`
+* `PercAlumniDonation`
+* `SFRatio`
+* `CostOutstate`
+
+The AIC is still more or less high (compared to the AIC which we had in the last lecture on Thursday), but it's about 1500 lower than the AIC with the unprepared data (which would be 10818.92). We assume, that the AIC is lower because of the addition of the 2 rows (EnrolledToAccepted and AcceptanceRate) and removal of other variables (e.g. Enroll, Top10perc, Top25perc, etc).
+
+# Task 6
+
+## Split in Training and Test Sets
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+normalize <- function(x) {
+    (x - min(x)) / (max(x) - min(x))
+}
+college_cleaned_3_norm <-as.data.frame(lapply(college_cleaned_3[2:16],normalize))
+
+random_ids <- sample(1:nrow(college_cleaned_3_norm), size = nrow(college_cleaned_3_norm)*0.8)
+train_college <- college_cleaned_3_norm[random_ids, ]
+test_college <- college_cleaned_3_norm[-random_ids, ]
+test_college_x <- college_cleaned_3_norm[random_ids, 1]
+test_college_y <-college_cleaned_3_norm[-random_ids, 1]
+```
+
+## k Nearest Neighbor Regression
+
+We normalize the data and use the knn regression. 
+
+### k = 3
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+fit_knn3 <- knn.reg(train_college, test_college, as.numeric(test_college_x), k=3)
+fit_knn3
+```
+
+### k = 5
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+fit_knn5 <- knn.reg(train_college, test_college, as.numeric(test_college_x), k=5)
+fit_knn5
+```
+
+### k = 9
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+fit_knn9 <- knn.reg(train_college, test_college, as.numeric(test_college_x), k=9)
+fit_knn9
+```
+
+# Task 7
+
+## Calculate RMSE
+
+### Model of task 3
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+fit_step_3 <- lm(Applications ~ FTUndergrad+PTUndergrad+CostOutstate+CostRoomBoard+CostBooks+CostPersonal+PercPhD+PercTerminal+SFRatio+PercAlumniDonation+ExpenditurePerStudent+GradRate+AcceptanceRate+EnrolledToAccepted, data = college_cleaned_3_norm)
+
+actual <- test_college[, c(1)]
+
+predict_fs3 <- predict(fit_step_3, test_college)
+rmse(actual, predict_fs3)
+```
+
+### Model of task 4
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+fit_step_4 <- lm(Applications ~ FTUndergrad+EnrolledToAccepted+AcceptanceRate+GradRate+ExpenditurePerStudent+PercAlumniDonation+PTUndergrad+SFRatio+CostOutstate, data = college_cleaned_3_norm)
+
+actual <- test_college[, c(1)]
+
+predict_fs4 <- predict(fit_step_4, test_college)
+rmse(actual, predict_fs4)
+```
+
+## k Nearest Neighbor regression
+
+### k = 3
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+rmse(test_college_y, fit_knn3$pred)
+```
+
+### k = 5
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+rmse(test_college_y, fit_knn5$pred)
+```
+
+### k = 9
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(12183)
+
+rmse(test_college_y, fit_knn9$pred)
+```
+
+## Evaluation of Results
+
+After computing RMSE, we see that all the models produce a good fit. In particular, models created with knn are a better fit and the difference between a model created in step 3 and the one chosen by the stepwise procedure is insignificant.
