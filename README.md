@@ -18,6 +18,14 @@ Project 2:
 - I then compared both model's churn probability, accuracy, recall, precision & F1 scores
 - Lastly, as a bonus, I also tried to improve the model via a cutoff point selection
 
-🔗to the html file: https://tinyurl.com/shoppingchurnprediction
+🔗to the html file: https://tinyurl.com/customerschurnprediction
 
 Project 3:
+- This was a continuation of project 2 with different types of models employed.
+- Build a classification tree on the training sample (optimally pruned)
+- From this tree chose variables for the split
+- Compared the logistic regression, classification tree and random forest models on accuracy, recall and precision (on the test sample)
+
+🔗to the html file: https://tinyurl.com/customerchurnprediction2
+
+Project 4:
