@@ -1,6 +1,6 @@
 # R-Data-Analysis
 
-Below are html files to some data analysis projects that I did for Uni (course: Data Analytics). I also attached the respective .rmd notebooks and datasets (as a backup, should the web-source not be available anymore) in the respective repository folders. The projects can thus be simply replicated in RStudio. 
+Below are descriptions & html file links to some data analysis projects that I did for Uni (course: Data Analytics). I also attached the respective .rmd notebooks and datasets (as a backup, should the web-source not be available anymore) in the respective repository folders. The projects can thus be simply replicated in RStudio. 
 
 Project 1.:
 - Task was a descriptive Analysis of U.S. College Data from Iowa.
